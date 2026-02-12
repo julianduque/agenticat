@@ -19,10 +19,7 @@ const isMessageSendParams = (value: unknown): value is MessageSendParams => {
   if (!message || typeof message !== "object") {
     return false;
   }
-  return (
-    typeof message.messageId === "string" &&
-    Array.isArray(message.parts)
-  );
+  return typeof message.messageId === "string" && Array.isArray(message.parts);
 };
 
 // Direct streaming to an endpoint URL using SSE
@@ -62,10 +59,10 @@ export async function POST(request: Request) {
   try {
     body = (await request.json()) as StreamRequest;
   } catch {
-    return new Response(
-      JSON.stringify({ ok: false, error: "Invalid JSON payload." }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ ok: false, error: "Invalid JSON payload." }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   const cardUrl = typeof body.cardUrl === "string" ? body.cardUrl : "";
@@ -79,24 +76,29 @@ export async function POST(request: Request) {
   const authToken = getAuthTokenForSdk(auth);
 
   if (!cardUrl && !endpointUrl) {
-    return new Response(
-      JSON.stringify({ ok: false, error: "Missing cardUrl or endpointUrl." }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ ok: false, error: "Missing cardUrl or endpointUrl." }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   if (!isMessageSendParams(params)) {
-    return new Response(
-      JSON.stringify({ ok: false, error: "Missing params.message." }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ ok: false, error: "Missing params.message." }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   try {
     // If we have an endpoint URL but no card URL, use direct streaming
     if (!cardUrl && endpointUrl) {
-      const upstreamResponse = await directStreamingCall(endpointUrl, "message/send", params, authHeaders);
-      
+      const upstreamResponse = await directStreamingCall(
+        endpointUrl,
+        "message/send",
+        params,
+        authHeaders
+      );
+
       // Check if the response is actually SSE
       const contentType = upstreamResponse.headers.get("Content-Type") || "";
       if (contentType.includes("text/event-stream") && upstreamResponse.body) {
@@ -105,7 +107,7 @@ export async function POST(request: Request) {
           headers: {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
+            Connection: "keep-alive",
           },
         });
       } else {
@@ -124,7 +126,7 @@ export async function POST(request: Request) {
           headers: {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
+            Connection: "keep-alive",
           },
         });
       }
@@ -133,11 +135,11 @@ export async function POST(request: Request) {
     // Use SDK when we have a card URL
     const factory = new ClientFactory();
     const client = await factory.createFromUrl(cardUrl, authToken);
-    
+
     // Check if agent supports streaming
     const agentCard = await client.getAgentCard();
     const supportsStreaming = agentCard.capabilities?.streaming ?? false;
-    
+
     if (!supportsStreaming) {
       return new Response(
         JSON.stringify({ ok: false, error: "Agent does not support streaming." }),
@@ -146,7 +148,7 @@ export async function POST(request: Request) {
     }
 
     const encoder = new TextEncoder();
-    
+
     const stream = new ReadableStream({
       async start(controller) {
         try {
@@ -159,7 +161,9 @@ export async function POST(request: Request) {
           controller.close();
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : "Stream failed";
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errorMessage })}\n\n`));
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ error: errorMessage })}\n\n`)
+          );
           controller.close();
         }
       },
@@ -169,7 +173,7 @@ export async function POST(request: Request) {
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
+        Connection: "keep-alive",
       },
     });
   } catch (error) {

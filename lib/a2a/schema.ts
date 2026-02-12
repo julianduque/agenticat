@@ -28,9 +28,9 @@ export type AgentProvider = {
 
 export type AgentAuthConfig = {
   type: "none" | "bearer" | "apiKey" | "custom";
-  token?: string;           // For bearer auth
-  apiKeyHeader?: string;    // Header name for API key (e.g., "X-API-Key")
-  apiKeyValue?: string;     // API key value
+  token?: string; // For bearer auth
+  apiKeyHeader?: string; // Header name for API key (e.g., "X-API-Key")
+  apiKeyValue?: string; // API key value
   customHeaders?: Record<string, string>; // For custom headers
 };
 
@@ -68,8 +68,7 @@ const asString = (value: unknown): string => {
 };
 
 const collectEndpointCandidates = (card: Record<string, unknown>) => {
-  const candidates: { entry: Record<string, unknown>; protocolHint: string }[] =
-    [];
+  const candidates: { entry: Record<string, unknown>; protocolHint: string }[] = [];
   const endpoints = card.endpoints;
   const preferredTransport = asString(card.preferredTransport).toLowerCase();
   const protocolHint = preferredTransport || DEFAULT_PROTOCOL;
@@ -165,7 +164,7 @@ export const normalizeAgentCard = (
     }
     const skillDescription = asString(record.description);
     const skillId = asString(record.id);
-    const examples = Array.isArray(record.examples) 
+    const examples = Array.isArray(record.examples)
       ? record.examples.filter((e): e is string => typeof e === "string")
       : undefined;
     const tags = Array.isArray(record.tags)
@@ -177,7 +176,7 @@ export const normalizeAgentCard = (
     const outputModes = Array.isArray(record.outputModes)
       ? record.outputModes.filter((m): m is string => typeof m === "string")
       : undefined;
-    
+
     skills.push({
       name: skillName,
       ...(skillId ? { id: skillId } : {}),
@@ -233,10 +232,12 @@ export const normalizeAgentCard = (
 
   // Extract provider info
   const providerRecord = asRecord(card.provider);
-  const provider: AgentProvider | undefined = providerRecord ? {
-    organization: asString(providerRecord.organization) || undefined,
-    url: asString(providerRecord.url) || undefined,
-  } : undefined;
+  const provider: AgentProvider | undefined = providerRecord
+    ? {
+        organization: asString(providerRecord.organization) || undefined,
+        url: asString(providerRecord.url) || undefined,
+      }
+    : undefined;
 
   // Extract default input/output modes
   const defaultInputModes = Array.isArray(card.defaultInputModes)
@@ -270,9 +271,7 @@ export const normalizeAgentCard = (
  * Build authentication headers from AgentAuthConfig
  * Returns a Record of header name -> header value
  */
-export const buildAuthHeaders = (
-  auth?: AgentAuthConfig
-): Record<string, string> => {
+export const buildAuthHeaders = (auth?: AgentAuthConfig): Record<string, string> => {
   if (!auth || auth.type === "none") {
     return {};
   }
@@ -308,11 +307,11 @@ export const getAuthTokenForSdk = (auth?: AgentAuthConfig): string => {
   if (!auth || auth.type === "none") {
     return "";
   }
-  
+
   if (auth.type === "bearer" && auth.token) {
     return auth.token;
   }
-  
+
   // For other auth types, SDK doesn't support them directly
   // They need to be handled at the fetch level
   return "";

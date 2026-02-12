@@ -13,10 +13,7 @@ export async function POST(request: Request) {
   try {
     payload = (await request.json()) as RegisterRequest;
   } catch {
-    return NextResponse.json(
-      { ok: false, errors: ["Invalid JSON payload."] },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, errors: ["Invalid JSON payload."] }, { status: 400 });
   }
 
   const cardUrl = typeof payload.cardUrl === "string" ? payload.cardUrl : "";
@@ -35,25 +32,25 @@ export async function POST(request: Request) {
   // If registering by JSON, try to extract URL from the card itself
   if (!resolvedUrl && hasJson && payload.cardJson && typeof payload.cardJson === "object") {
     const jsonCard = payload.cardJson as Record<string, unknown>;
-    
+
     // Try to get URL from common fields in agent cards
     const cardUrlField = jsonCard.url ?? jsonCard.cardUrl ?? jsonCard.agentUrl;
     if (typeof cardUrlField === "string" && cardUrlField.trim()) {
       resolvedUrl = cardUrlField.trim();
     }
-    
+
     // If still no URL, try to derive from endpoints
     if (!resolvedUrl) {
       const endpoints = jsonCard.endpoints;
       let endpointUrl: string | null = null;
-      
+
       if (Array.isArray(endpoints) && endpoints.length > 0) {
         const firstEndpoint = endpoints[0] as Record<string, unknown> | null;
         if (firstEndpoint && typeof firstEndpoint.url === "string") {
           endpointUrl = firstEndpoint.url;
         }
       }
-      
+
       // Try to construct card URL from endpoint (e.g., https://host/rpc -> https://host/.well-known/agent-card.json)
       if (endpointUrl) {
         try {
@@ -92,9 +89,7 @@ export async function POST(request: Request) {
         {
           ok: false,
           errors: [
-            `Failed to fetch card: ${
-              error instanceof Error ? error.message : "Unknown error"
-            }`,
+            `Failed to fetch card: ${error instanceof Error ? error.message : "Unknown error"}`,
           ],
         },
         { status: 400 }

@@ -10,28 +10,22 @@ export async function POST(request: Request) {
   try {
     body = (await request.json()) as HealthRequest;
   } catch {
-    return NextResponse.json(
-      { ok: false, error: "Invalid JSON payload." },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: "Invalid JSON payload." }, { status: 400 });
   }
 
   const cardUrl = typeof body.cardUrl === "string" ? body.cardUrl : "";
 
   if (!cardUrl) {
-    return NextResponse.json(
-      { ok: false, error: "Missing cardUrl." },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: "Missing cardUrl." }, { status: 400 });
   }
 
   try {
     const startTime = Date.now();
-    
+
     const response = await fetch(cardUrl, {
       method: "GET",
       headers: {
-        "Accept": "application/json",
+        Accept: "application/json",
       },
       // Set a timeout for the health check
       signal: AbortSignal.timeout(10000),
@@ -51,10 +45,8 @@ export async function POST(request: Request) {
 
     // Try to parse the agent card to verify it's valid
     const agentCard = await response.json();
-    const isValidCard = 
-      typeof agentCard === "object" &&
-      agentCard !== null &&
-      typeof agentCard.name === "string";
+    const isValidCard =
+      typeof agentCard === "object" && agentCard !== null && typeof agentCard.name === "string";
 
     return NextResponse.json({
       ok: true,
@@ -67,7 +59,7 @@ export async function POST(request: Request) {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Health check failed";
     const isTimeout = errorMessage.includes("timeout") || errorMessage.includes("aborted");
-    
+
     return NextResponse.json({
       ok: true,
       healthy: false,

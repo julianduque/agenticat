@@ -4,7 +4,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { cn } from "@/lib/utils";
-import type { ComponentPropsWithoutRef } from "react";
 
 // Import highlight.js styles - you can also add this to globals.css
 import "highlight.js/styles/github-dark.css";
@@ -44,18 +43,15 @@ export function MarkdownRenderer({ children, className }: MarkdownRendererProps)
           code({ className, children, ...props }) {
             const match = /language-(\w+)/.exec(className || "");
             const isInline = !match && !className?.includes("hljs");
-            
+
             if (isInline) {
               return (
-                <code
-                  className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono"
-                  {...props}
-                >
+                <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono" {...props}>
                   {children}
                 </code>
               );
             }
-            
+
             return (
               <code className={cn(className, "text-xs")} {...props}>
                 {children}

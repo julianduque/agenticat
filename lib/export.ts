@@ -39,7 +39,7 @@ export function exportToMarkdown(
   metadata: Omit<ExportMetadata, "exportedAt">
 ): string {
   const lines: string[] = [];
-  
+
   // Header
   lines.push(`# Conversation with ${metadata.agentName}`);
   lines.push("");
@@ -51,7 +51,7 @@ export function exportToMarkdown(
   lines.push("");
   lines.push("---");
   lines.push("");
-  
+
   // Messages
   for (const message of messages) {
     const timestamp = new Date(message.timestamp).toLocaleTimeString([], {
@@ -59,12 +59,12 @@ export function exportToMarkdown(
       minute: "2-digit",
     });
     const roleLabel = message.role === "user" ? "**You**" : "**Agent**";
-    
+
     lines.push(`### ${roleLabel} (${timestamp})`);
     lines.push("");
     lines.push(message.content);
     lines.push("");
-    
+
     if (message.taskId) {
       lines.push(`> Task: ${message.taskId}`);
       if (message.taskState) {
@@ -73,7 +73,7 @@ export function exportToMarkdown(
       lines.push("");
     }
   }
-  
+
   return lines.join("\n");
 }
 

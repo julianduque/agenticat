@@ -32,7 +32,7 @@ A modern dashboard for interacting with AI agents using the [A2A (Agent-to-Agent
 
 ### Prerequisites
 
-- Node.js 18+ 
+- Node.js 18+
 - pnpm (recommended) or npm/yarn
 
 ### Installation
@@ -100,18 +100,18 @@ pnpm dev
 
 AgentiCat implements the following A2A protocol features:
 
-| Feature | Status |
-|---------|--------|
-| Agent Card Discovery | ✅ |
-| `message/send` | ✅ |
-| `message/stream` | ✅ |
-| `tasks/get` | ✅ |
-| Streaming (SSE) | ✅ |
-| Push Notifications | 🔜 |
-| State Transition History | ✅ |
-| Multi-turn Conversations | ✅ |
-| Input-Required State | ✅ |
-| Artifacts | ✅ |
+| Feature                  | Status |
+| ------------------------ | ------ |
+| Agent Card Discovery     | ✅     |
+| `message/send`           | ✅     |
+| `message/stream`         | ✅     |
+| `tasks/get`              | ✅     |
+| Streaming (SSE)          | ✅     |
+| Push Notifications       | 🔜     |
+| State Transition History | ✅     |
+| Multi-turn Conversations | ✅     |
+| Input-Required State     | ✅     |
+| Artifacts                | ✅     |
 
 ## Scripts
 

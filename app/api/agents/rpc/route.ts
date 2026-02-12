@@ -22,10 +22,7 @@ const isMessageSendParams = (value: unknown): value is MessageSendParams => {
   if (!message || typeof message !== "object") {
     return false;
   }
-  return (
-    typeof message.messageId === "string" &&
-    Array.isArray(message.parts)
-  );
+  return typeof message.messageId === "string" && Array.isArray(message.parts);
 };
 
 // Make a direct JSON-RPC call to an endpoint
@@ -57,7 +54,7 @@ async function directJsonRpcCall(
   }
 
   const data = await response.json();
-  
+
   // Handle JSON-RPC error response
   if (data.error) {
     const errorMsg = data.error.message || data.error.code || "RPC error";
@@ -73,10 +70,7 @@ export async function POST(request: Request) {
   try {
     body = (await request.json()) as RpcRequest;
   } catch {
-    return NextResponse.json(
-      { ok: false, error: "Invalid JSON payload." },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: "Invalid JSON payload." }, { status: 400 });
   }
 
   const cardUrl = typeof body.cardUrl === "string" ? body.cardUrl : "";
@@ -102,16 +96,16 @@ export async function POST(request: Request) {
   const supportedMethods = ["message/send", "message/stream"];
   if (!supportedMethods.includes(method)) {
     return NextResponse.json(
-      { ok: false, error: `Method '${method}' not supported. Use one of: ${supportedMethods.join(", ")}` },
+      {
+        ok: false,
+        error: `Method '${method}' not supported. Use one of: ${supportedMethods.join(", ")}`,
+      },
       { status: 400 }
     );
   }
 
   if (!isMessageSendParams(params)) {
-    return NextResponse.json(
-      { ok: false, error: "Missing params.message." },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: "Missing params.message." }, { status: 400 });
   }
 
   // For message/stream, force streaming mode
@@ -134,13 +128,13 @@ export async function POST(request: Request) {
     const client = await factory.createFromUrl(cardUrl, authToken);
     const agentCard = await client.getAgentCard();
     const supportsStreaming = agentCard.capabilities?.streaming ?? false;
-    
+
     // Use streaming if requested AND supported, otherwise use regular sendMessage
     if (requestStreaming && supportsStreaming) {
       // Streaming mode: collect all events and return the final state
       const events: unknown[] = [];
       let finalResult: unknown = null;
-      
+
       for await (const event of client.sendMessageStream(params)) {
         events.push(event);
         // Keep track of the latest Task or Message

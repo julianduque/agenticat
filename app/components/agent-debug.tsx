@@ -1,66 +1,64 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { Check, Copy, X, ChevronRight, Activity, Clock, FileCode, Server, Loader2 } from "lucide-react";
+import {
+  Check,
+  Copy,
+  X,
+  ChevronRight,
+  Activity,
+  Clock,
+  FileCode,
+  Server,
+  Loader2,
+} from "lucide-react";
 
 // JSON Syntax Highlighter Component
 function JsonHighlight({ json }: { json: string }) {
   const highlighted = useMemo(() => {
     // Escape HTML first
-    const escaped = json
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-    
+    const escaped = json.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
     // Apply syntax highlighting
-    return escaped
-      // Strings (including property names in quotes)
-      .replace(
-        /("(?:[^"\\]|\\.)*")\s*:/g,
-        '<span class="text-violet-600 dark:text-violet-400">$1</span>:'
-      )
-      // String values
-      .replace(
-        /:\s*("(?:[^"\\]|\\.)*")/g,
-        ': <span class="text-emerald-600 dark:text-emerald-400">$1</span>'
-      )
-      // Standalone strings (in arrays)
-      .replace(
-        /(\[|,)\s*("(?:[^"\\]|\\.)*")/g,
-        '$1 <span class="text-emerald-600 dark:text-emerald-400">$2</span>'
-      )
-      // Numbers
-      .replace(
-        /:\s*(-?\d+\.?\d*(?:e[+-]?\d+)?)\b/gi,
-        ': <span class="text-amber-600 dark:text-amber-400">$1</span>'
-      )
-      // Booleans
-      .replace(
-        /:\s*(true|false)\b/g,
-        ': <span class="text-blue-600 dark:text-blue-400">$1</span>'
-      )
-      // Null
-      .replace(
-        /:\s*(null)\b/g,
-        ': <span class="text-rose-600 dark:text-rose-400">$1</span>'
-      )
-      // Braces and brackets
-      .replace(
-        /([{}\[\]])/g,
-        '<span class="text-muted-foreground">$1</span>'
-      );
+    return (
+      escaped
+        // Strings (including property names in quotes)
+        .replace(
+          /("(?:[^"\\]|\\.)*")\s*:/g,
+          '<span class="text-violet-600 dark:text-violet-400">$1</span>:'
+        )
+        // String values
+        .replace(
+          /:\s*("(?:[^"\\]|\\.)*")/g,
+          ': <span class="text-emerald-600 dark:text-emerald-400">$1</span>'
+        )
+        // Standalone strings (in arrays)
+        .replace(
+          /(\[|,)\s*("(?:[^"\\]|\\.)*")/g,
+          '$1 <span class="text-emerald-600 dark:text-emerald-400">$2</span>'
+        )
+        // Numbers
+        .replace(
+          /:\s*(-?\d+\.?\d*(?:e[+-]?\d+)?)\b/gi,
+          ': <span class="text-amber-600 dark:text-amber-400">$1</span>'
+        )
+        // Booleans
+        .replace(
+          /:\s*(true|false)\b/g,
+          ': <span class="text-blue-600 dark:text-blue-400">$1</span>'
+        )
+        // Null
+        .replace(/:\s*(null)\b/g, ': <span class="text-rose-600 dark:text-rose-400">$1</span>')
+        // Braces and brackets
+        .replace(/([{}\[\]])/g, '<span class="text-muted-foreground">$1</span>')
+    );
   }, [json]);
 
-  return (
-    <code
-      className="block"
-      dangerouslySetInnerHTML={{ __html: highlighted }}
-    />
-  );
+  return <code className="block" dangerouslySetInnerHTML={{ __html: highlighted }} />;
 }
 
 type RpcLogEntry = {
@@ -99,9 +97,7 @@ export function AgentDebug({
 
   const handleCopyCurl = async (log: RpcLogEntry, e: React.MouseEvent) => {
     e.stopPropagation();
-    await navigator.clipboard.writeText(
-      buildCurl(log.endpointUrl, log.requestPayload)
-    );
+    await navigator.clipboard.writeText(buildCurl(log.endpointUrl, log.requestPayload));
     setCopiedLogId(log.id);
     setTimeout(() => setCopiedLogId(null), 2000);
   };
@@ -137,10 +133,12 @@ export function AgentDebug({
       {/* Main content area */}
       <div className="flex flex-1 min-h-0">
         {/* Request list */}
-        <div className={cn(
-          "flex flex-col border-r border-border/60",
-          selectedLog ? "w-1/2" : "w-full"
-        )}>
+        <div
+          className={cn(
+            "flex flex-col border-r border-border/60",
+            selectedLog ? "w-1/2" : "w-full"
+          )}
+        >
           {/* Table header */}
           <div className="grid grid-cols-[1fr_60px_70px_70px_32px] gap-2 border-b border-border/60 bg-muted/30 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             <div>Method</div>
@@ -181,10 +179,12 @@ export function AgentDebug({
                         onClick={() => setSelectedLogId(isSelected ? null : log.id)}
                         className="flex items-center gap-2 truncate text-left"
                       >
-                        <ChevronRight className={cn(
-                          "h-3 w-3 shrink-0 text-muted-foreground transition-transform",
-                          isSelected && "rotate-90 text-primary"
-                        )} />
+                        <ChevronRight
+                          className={cn(
+                            "h-3 w-3 shrink-0 text-muted-foreground transition-transform",
+                            isSelected && "rotate-90 text-primary"
+                          )}
+                        />
                         <span className="font-mono font-medium truncate">
                           {method ?? "unknown"}
                         </span>
@@ -208,10 +208,12 @@ export function AgentDebug({
                           second: "2-digit",
                         })}
                       </div>
-                      <div className={cn(
-                        "flex items-center font-mono font-medium",
-                        hasResponse ? getStatusColor(log.status) : "text-muted-foreground"
-                      )}>
+                      <div
+                        className={cn(
+                          "flex items-center font-mono font-medium",
+                          hasResponse ? getStatusColor(log.status) : "text-muted-foreground"
+                        )}
+                      >
                         {formatDuration(log.durationMs)}
                       </div>
                       <div className="flex items-center justify-center">
@@ -253,7 +255,14 @@ export function AgentDebug({
             <div className="flex items-center justify-between border-b border-border/60 bg-muted/20 px-3 py-1.5">
               <div className="flex gap-0.5">
                 {(["headers", "payload", "response", "timing"] as DetailTab[]).map((tab) => {
-                  const TabIcon = tab === "headers" ? Server : tab === "payload" ? FileCode : tab === "response" ? FileCode : Clock;
+                  const TabIcon =
+                    tab === "headers"
+                      ? Server
+                      : tab === "payload"
+                        ? FileCode
+                        : tab === "response"
+                          ? FileCode
+                          : Clock;
                   return (
                     <button
                       key={tab}
@@ -292,7 +301,9 @@ export function AgentDebug({
                         <tbody className="divide-y divide-border/40">
                           <tr className="hover:bg-muted/30">
                             <td className="py-2 px-3 text-muted-foreground w-28">Request URL</td>
-                            <td className="py-2 px-3 font-mono break-all">{selectedLog.endpointUrl}</td>
+                            <td className="py-2 px-3 font-mono break-all">
+                              {selectedLog.endpointUrl}
+                            </td>
                           </tr>
                           <tr className="hover:bg-muted/30">
                             <td className="py-2 px-3 text-muted-foreground">Method</td>
@@ -300,7 +311,12 @@ export function AgentDebug({
                           </tr>
                           <tr className="hover:bg-muted/30">
                             <td className="py-2 px-3 text-muted-foreground">Status Code</td>
-                            <td className={cn("py-2 px-3 font-mono font-medium", getStatusColor(selectedLog.status))}>
+                            <td
+                              className={cn(
+                                "py-2 px-3 font-mono font-medium",
+                                getStatusColor(selectedLog.status)
+                              )}
+                            >
                               {selectedLog.status ?? "Pending"}
                             </td>
                           </tr>
@@ -388,7 +404,12 @@ export function AgentDebug({
                           )}
                           <tr className="hover:bg-muted/30">
                             <td className="py-2 px-3 text-muted-foreground">Duration</td>
-                            <td className={cn("py-2 px-3 font-mono font-semibold", getStatusColor(selectedLog.status))}>
+                            <td
+                              className={cn(
+                                "py-2 px-3 font-mono font-semibold",
+                                getStatusColor(selectedLog.status)
+                              )}
+                            >
                               {formatDuration(selectedLog.durationMs)}
                             </td>
                           </tr>

@@ -12,22 +12,22 @@ const getPreferredTheme = (): ThemeMode => {
   if (typeof window === "undefined") {
     return "light";
   }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 };
 
+function getInitialTheme(): ThemeMode {
+  if (typeof window === "undefined") return "light";
+  const stored = window.localStorage.getItem(STORAGE_KEY);
+  if (stored === "light" || stored === "dark") return stored;
+  return getPreferredTheme();
+}
+
 export const ThemeToggle = () => {
-  const [theme, setTheme] = useState<ThemeMode>("light");
+  const [theme, setTheme] = useState<ThemeMode>(() => getInitialTheme());
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    const initial = stored === "light" || stored === "dark"
-      ? stored
-      : getPreferredTheme();
-    document.documentElement.classList.toggle("dark", initial === "dark");
-    setTheme(initial);
-  }, []);
+    document.documentElement.classList.toggle("dark", theme === "dark");
+  }, [theme]);
 
   const toggleTheme = () => {
     const next: ThemeMode = theme === "dark" ? "light" : "dark";
@@ -37,12 +37,7 @@ export const ThemeToggle = () => {
   };
 
   return (
-    <Button
-      aria-label="Toggle theme"
-      onClick={toggleTheme}
-      size="icon"
-      variant="ghost"
-    >
+    <Button aria-label="Toggle theme" onClick={toggleTheme} size="icon" variant="ghost">
       {theme === "dark" ? <SunIcon className="size-4" /> : <MoonIcon className="size-4" />}
     </Button>
   );
