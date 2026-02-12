@@ -268,6 +268,13 @@ export const normalizeAgentCard = (
 };
 
 /**
+ * True when auth requires custom headers (API key or custom). The SDK only supports
+ * bearer tokens, so these auth types must use direct fetch with authHeaders.
+ */
+export const authNeedsCustomHeaders = (auth?: AgentAuthConfig): boolean =>
+  !!auth && (auth.type === "apiKey" || auth.type === "custom");
+
+/**
  * Build authentication headers from AgentAuthConfig
  * Returns a Record of header name -> header value
  */

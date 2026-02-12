@@ -39,9 +39,7 @@ async function directJsonRpcCall(
     params,
   };
 
-  const normalizedUrl = targetUrl.replace(/\/+$/, "") || targetUrl;
-
-  const response = await fetch(normalizedUrl, {
+  const response = await fetch(targetUrl.trim(), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -54,7 +52,25 @@ async function directJsonRpcCall(
   });
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    let detail = `HTTP ${response.status}: ${response.statusText}`;
+    try {
+      const text = await response.text();
+      if (text) {
+        const parsed = JSON.parse(text) as { error?: { message?: string }; message?: string };
+        detail = parsed?.error?.message ?? parsed?.message ?? text.slice(0, 200);
+      }
+    } catch {
+      // keep detail
+    }
+    if (response.status === 404) {
+      detail =
+        "Endpoint returned 404 Not Found. Use the full endpoint URL including path (e.g. …/supply-chain-query). Check the agent docs for the exact JSON-RPC URL.";
+    }
+    if (response.status === 401) {
+      detail =
+        "401 Unauthorized. Check that auth header names match exactly (e.g. client_id, client_secret). Some agents are case-sensitive.";
+    }
+    throw new Error(detail);
   }
 
   const data = await response.json();
@@ -89,6 +105,18 @@ export async function POST(request: Request) {
   // Get bearer token for SDK calls
   const authToken = getAuthTokenForSdk(auth);
 
+  const hasAuth = auth && auth.type !== "none";
+  if (hasAuth && Object.keys(authHeaders).length === 0) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Auth is configured but no headers were built. For custom headers, add at least one header with a name and value. For API key, set both header name and value. For bearer, set the token.",
+      },
+      { status: 400 }
+    );
+  }
+
   if (!cardUrl && !endpointUrl) {
     return NextResponse.json(
       { ok: false, error: "Missing cardUrl or endpointUrl." },
@@ -116,8 +144,11 @@ export async function POST(request: Request) {
   const requestStreaming = method === "message/stream" ? true : useStreaming;
 
   try {
-    // If we have an endpoint URL but no card URL, make direct JSON-RPC call
-    if (!cardUrl && endpointUrl) {
+    // Use direct call when we have an endpoint and either no card URL or any auth.
+    // The SDK only reliably supports bearer on card fetch; we control headers on direct calls.
+    const hasAuth = auth && auth.type !== "none";
+    const useDirect = (!cardUrl && endpointUrl) || (endpointUrl && hasAuth);
+    if (useDirect) {
       const data = await directJsonRpcCall(endpointUrl, method, params, authHeaders);
       return NextResponse.json({
         ok: true,
@@ -177,9 +208,7 @@ export async function POST(request: Request) {
     const err = error instanceof Error ? error : new Error(String(error));
 
     const isAgentCard404 =
-      cardUrl &&
-      err.message.includes("Failed to fetch Agent Card") &&
-      err.message.includes("404");
+      cardUrl && err.message.includes("Failed to fetch Agent Card") && err.message.includes("404");
     if (isAgentCard404) {
       try {
         const data = await directJsonRpcCall(cardUrl, method, params, authHeaders);
@@ -193,8 +222,7 @@ export async function POST(request: Request) {
         return NextResponse.json(
           {
             ok: false,
-            error:
-              fallbackError instanceof Error ? fallbackError.message : "Request failed.",
+            error: fallbackError instanceof Error ? fallbackError.message : "Request failed.",
           },
           { status: 500 }
         );

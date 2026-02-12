@@ -65,6 +65,7 @@ type RpcLogEntry = {
   id: string;
   endpointUrl: string;
   requestPayload: unknown;
+  requestHeaders?: Record<string, string>;
   responsePayload?: unknown;
   status?: number;
   startedAt: string;
@@ -74,7 +75,7 @@ type RpcLogEntry = {
 
 type AgentDebugProps = {
   logs: RpcLogEntry[];
-  buildCurl: (endpointUrl: string, payload: unknown) => string;
+  buildCurl: (endpointUrl: string, payload: unknown, headers?: Record<string, string>) => string;
   formatJson: (value: unknown) => string;
   formatDuration: (durationMs: number | undefined) => string;
   extractRpcMethod: (payload: unknown) => string | null;
@@ -97,7 +98,9 @@ export function AgentDebug({
 
   const handleCopyCurl = async (log: RpcLogEntry, e: React.MouseEvent) => {
     e.stopPropagation();
-    await navigator.clipboard.writeText(buildCurl(log.endpointUrl, log.requestPayload));
+    await navigator.clipboard.writeText(
+      buildCurl(log.endpointUrl, log.requestPayload, log.requestHeaders)
+    );
     setCopiedLogId(log.id);
     setTimeout(() => setCopiedLogId(null), 2000);
   };
@@ -331,10 +334,22 @@ export function AgentDebug({
                     <div className="rounded-md border border-border/60 overflow-hidden">
                       <table className="w-full text-[11px]">
                         <tbody className="divide-y divide-border/40">
-                          <tr className="hover:bg-muted/30">
-                            <td className="py-2 px-3 text-muted-foreground w-28">Content-Type</td>
-                            <td className="py-2 px-3 font-mono">application/json</td>
-                          </tr>
+                          {selectedLog.requestHeaders &&
+                            Object.entries(selectedLog.requestHeaders).map(([name, value]) => (
+                              <tr key={name} className="hover:bg-muted/30">
+                                <td className="py-2 px-3 text-muted-foreground w-28 align-top">
+                                  {name}
+                                </td>
+                                <td className="py-2 px-3 font-mono break-all">{value}</td>
+                              </tr>
+                            ))}
+                          {(!selectedLog.requestHeaders ||
+                            Object.keys(selectedLog.requestHeaders).length === 0) && (
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-3 text-muted-foreground w-28">Content-Type</td>
+                              <td className="py-2 px-3 font-mono">application/json</td>
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>

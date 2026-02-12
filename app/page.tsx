@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { AgentCardNormalized, AgentAuthConfig } from "@/lib/a2a/schema";
+import { buildAuthHeaders } from "@/lib/a2a/schema";
 import { AgentChat } from "@/app/components/agent-chat";
 import { AgentDebug } from "@/app/components/agent-debug";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -91,6 +92,7 @@ type RpcLogEntry = {
   id: string;
   endpointUrl: string;
   requestPayload: unknown;
+  requestHeaders?: Record<string, string>;
   responsePayload?: unknown;
   status?: number;
   startedAt: string;
@@ -136,9 +138,13 @@ const formatJson = (value: unknown) => {
   }
 };
 
-const buildCurl = (endpointUrl: string, payload: unknown) => {
+const buildCurl = (endpointUrl: string, payload: unknown, headers?: Record<string, string>) => {
   const json = formatJson(payload).replace(/'/g, "'\\''");
-  return `curl -X POST '${endpointUrl}' -H 'content-type: application/json' -d '${json}'`;
+  const h = headers ?? { "Content-Type": "application/json" };
+  const headerFlags = Object.entries(h)
+    .map(([k, v]) => `-H '${k}: ${String(v).replace(/'/g, "'\\''")}'`)
+    .join(" ");
+  return `curl -X POST '${endpointUrl}' ${headerFlags} -d '${json}'`;
 };
 
 const extractErrorSummary = (data: unknown) => {
@@ -209,6 +215,12 @@ const extractArtifactsInfo = (artifacts: unknown[]): string | null => {
 };
 
 const extractResponseText = (data: unknown) => {
+  if (data && typeof data === "object") {
+    const record = data as Record<string, unknown>;
+    if (typeof record.error === "string") {
+      return record.error;
+    }
+  }
   const errorSummary = extractErrorSummary(data);
   if (errorSummary) {
     return errorSummary;
@@ -439,6 +451,9 @@ export default function Home() {
   const [messagesByAgent, setMessagesByAgent] = useState<Record<string, ChatMessage[]>>({});
   const [rpcLogsByAgent, setRpcLogsByAgent] = useState<Record<string, RpcLogEntry[]>>({});
   const [endpointByAgent, setEndpointByAgent] = useState<Record<string, string>>({});
+  const [endpointOverrideByAgent, setEndpointOverrideByAgent] = useState<Record<string, string>>(
+    {}
+  );
   const [methodByAgent, setMethodByAgent] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
   const [contextIdByAgent, setContextIdByAgent] = useState<Record<string, string>>({});
@@ -446,6 +461,7 @@ export default function Home() {
   const [showRawJson, setShowRawJson] = useState(false);
   const [authByAgent, setAuthByAgent] = useState<Record<string, AgentAuthConfig>>({});
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const [customHeaderRows, setCustomHeaderRows] = useState<{ key: string; value: string }[]>([]);
   const [trackedTasksByAgent, setTrackedTasksByAgent] = useState<Record<string, TrackedTask[]>>({});
   const [taskPanelOpen, setTaskPanelOpen] = useState(false);
   const [fetchingTask, setFetchingTask] = useState(false);
@@ -465,6 +481,17 @@ export default function Home() {
     m.addEventListener("change", update);
     return () => m.removeEventListener("change", update);
   }, []);
+
+  // Sync custom header rows when auth dialog opens with custom type
+  const selectedAuthType = authByAgent[selectedAgentId ?? ""]?.type;
+  useEffect(() => {
+    if (!authDialogOpen || !selectedAgentId) return;
+    const auth = authByAgent[selectedAgentId];
+    if (auth?.type !== "custom") return;
+    const headers = auth.customHeaders ?? {};
+    const entries = Object.entries(headers).map(([key, value]) => ({ key, value }));
+    setCustomHeaderRows(entries.length ? entries : [{ key: "", value: "" }]);
+  }, [authDialogOpen, selectedAgentId, selectedAuthType, authByAgent]);
 
   useEffect(() => {
     try {
@@ -682,9 +709,11 @@ export default function Home() {
       return;
     }
     setChatError(null);
-    const endpointUrl = endpointByAgent[selectedAgent.id] ?? selectedAgent.endpoints[0]?.url;
+    const baseEndpoint = endpointByAgent[selectedAgent.id] ?? selectedAgent.endpoints[0]?.url;
+    const endpointUrl =
+      endpointOverrideByAgent[selectedAgent.id]?.trim() || baseEndpoint || undefined;
     if (!endpointUrl) {
-      setChatError("Select an endpoint before chatting.");
+      setChatError("Select an endpoint or enter a full endpoint URL before chatting.");
       return;
     }
     // We need either a card URL or an endpoint URL to communicate
@@ -761,10 +790,18 @@ export default function Home() {
     const rpcLogId = crypto.randomUUID();
     const startedAt = timestamp;
     const startedAtMs = Date.now();
+    const supportsStreaming = selectedAgent.capabilities.streaming;
+    const useStreaming = forceStreaming || supportsStreaming;
+    const requestHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: useStreaming && supportsStreaming ? "text/event-stream" : "application/json",
+      ...buildAuthHeaders(authByAgent[selectedAgent.id]),
+    };
     const requestLog: RpcLogEntry = {
       id: rpcLogId,
       endpointUrl,
       requestPayload: payload,
+      requestHeaders,
       startedAt,
     };
 
@@ -774,10 +811,6 @@ export default function Home() {
     }));
 
     setSending(true);
-
-    // Check if agent supports streaming
-    const supportsStreaming = selectedAgent.capabilities.streaming;
-    const useStreaming = forceStreaming || supportsStreaming;
     const assistantMessageId = crypto.randomUUID();
 
     if (useStreaming && supportsStreaming) {
@@ -804,20 +837,28 @@ export default function Home() {
           body: JSON.stringify({
             cardUrl: selectedAgent.url || undefined,
             endpointUrl: endpointUrl || undefined,
+            method,
             params: requestParams,
             auth: authByAgent[selectedAgent.id],
           }),
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || "Streaming failed");
+          let bodyMessage = "Streaming failed";
+          try {
+            const errorData = await response.json();
+            bodyMessage = (errorData as { error?: string }).error || bodyMessage;
+          } catch {
+            bodyMessage = response.statusText || "Unknown error";
+          }
+          throw new Error(`${response.status} ${bodyMessage}`);
         }
 
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
         let accumulatedContent = "";
         let lastEventData: Record<string, unknown> | null = null;
+        let streamErrorMsg: string | null = null;
 
         if (reader) {
           while (true) {
@@ -836,6 +877,15 @@ export default function Home() {
                 try {
                   const parsed = JSON.parse(data) as Record<string, unknown>;
                   lastEventData = parsed;
+
+                  if (parsed.error != null) {
+                    streamErrorMsg =
+                      typeof parsed.error === "string"
+                        ? parsed.error
+                        : typeof (parsed.error as Record<string, unknown>)?.message === "string"
+                          ? ((parsed.error as Record<string, unknown>).message as string)
+                          : JSON.stringify(parsed.error);
+                  }
 
                   // Extract contextId from any event
                   const eventContextId = parsed.contextId as string | undefined;
@@ -998,13 +1048,26 @@ export default function Home() {
 
         // Finalize the message
         const finalContent = accumulatedContent || extractResponseText(lastEventData);
+        const isError =
+          streamErrorMsg != null ||
+          (lastEventData && (lastEventData as Record<string, unknown>).error != null) ||
+          !!extractErrorSummary(lastEventData);
+        const displayContent = streamErrorMsg ?? finalContent;
+        if (isError && displayContent) {
+          setChatError(displayContent);
+        }
         setMessagesByAgent((prev) => {
           const messages = prev[selectedAgent.id] ?? [];
           return {
             ...prev,
             [selectedAgent.id]: messages.map((msg) =>
               msg.id === assistantMessageId
-                ? { ...msg, content: finalContent, status: "complete" }
+                ? {
+                    ...msg,
+                    content: displayContent,
+                    status: isError ? "error" : "complete",
+                    error: isError ? displayContent : undefined,
+                  }
                 : msg
             ),
           };
@@ -1080,10 +1143,16 @@ export default function Home() {
               : log
           );
           if (!updated.some((log) => log.id === rpcLogId)) {
+            const rpcHeaders: Record<string, string> = {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+              ...buildAuthHeaders(authByAgent[selectedAgent.id]),
+            };
             updated.push({
               id: rpcLogId,
               endpointUrl,
               requestPayload: payload,
+              requestHeaders: rpcHeaders,
               responsePayload: data,
               status: data.status,
               startedAt,
@@ -1196,10 +1265,16 @@ export default function Home() {
               : log
           );
           if (!updated.some((log) => log.id === rpcLogId)) {
+            const rpcHeaders: Record<string, string> = {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+              ...buildAuthHeaders(authByAgent[selectedAgent.id]),
+            };
             updated.push({
               id: rpcLogId,
               endpointUrl,
               requestPayload: payload,
+              requestHeaders: rpcHeaders,
               responsePayload,
               startedAt,
               completedAt,
@@ -1771,6 +1846,17 @@ export default function Home() {
                                 ))}
                               </SelectContent>
                             </Select>
+                            <Input
+                              placeholder="Or paste full URL (e.g. …/supply-chain-query)"
+                              className="h-8 text-xs font-mono mt-1.5"
+                              value={endpointOverrideByAgent[selectedAgent.id] ?? ""}
+                              onChange={(e) =>
+                                setEndpointOverrideByAgent((prev) => ({
+                                  ...prev,
+                                  [selectedAgent.id]: e.target.value,
+                                }))
+                              }
+                            />
                           </div>
                           <div className="min-w-[140px] space-y-1.5">
                             <Label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -2085,6 +2171,8 @@ export default function Home() {
                   <Label className="text-sm font-medium">Bearer Token</Label>
                   <Input
                     type="password"
+                    autoComplete="off"
+                    data-1p-ignore
                     placeholder="Enter your bearer token"
                     value={authByAgent[selectedAgent.id]?.token ?? ""}
                     onChange={(e) => {
@@ -2110,6 +2198,8 @@ export default function Home() {
                     <Label className="text-sm font-medium">Header Name</Label>
                     <Input
                       placeholder="e.g., X-API-Key"
+                      autoComplete="off"
+                      data-1p-ignore
                       value={authByAgent[selectedAgent.id]?.apiKeyHeader ?? ""}
                       onChange={(e) => {
                         setAuthByAgent((prev) => ({
@@ -2127,6 +2217,8 @@ export default function Home() {
                     <Label className="text-sm font-medium">API Key Value</Label>
                     <Input
                       type="password"
+                      autoComplete="off"
+                      data-1p-ignore
                       placeholder="Enter your API key"
                       value={authByAgent[selectedAgent.id]?.apiKeyValue ?? ""}
                       onChange={(e) => {
@@ -2146,41 +2238,93 @@ export default function Home() {
 
               {authByAgent[selectedAgent.id]?.type === "custom" && (
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Custom Headers (JSON)</Label>
-                  <Textarea
-                    placeholder='{"Authorization": "Custom xyz", "X-Custom-Header": "value"}'
-                    className="font-mono text-xs min-h-[100px]"
-                    value={
-                      authByAgent[selectedAgent.id]?.customHeaders
-                        ? JSON.stringify(authByAgent[selectedAgent.id].customHeaders, null, 2)
-                        : ""
-                    }
-                    onChange={(e) => {
-                      try {
-                        const headers = JSON.parse(e.target.value || "{}");
-                        setAuthByAgent((prev) => ({
-                          ...prev,
-                          [selectedAgent.id]: {
-                            ...prev[selectedAgent.id],
-                            type: "custom",
-                            customHeaders: headers,
-                          },
-                        }));
-                      } catch {
-                        // Allow invalid JSON while typing
-                        setAuthByAgent((prev) => ({
-                          ...prev,
-                          [selectedAgent.id]: {
-                            ...prev[selectedAgent.id],
-                            type: "custom",
-                          },
-                        }));
-                      }
-                    }}
-                  />
+                  <Label className="text-sm font-medium">Custom Headers</Label>
                   <p className="text-[11px] text-muted-foreground">
-                    Enter custom headers as a JSON object
+                    Use the exact header names the agent expects (e.g. client_id, client_secret).
                   </p>
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                    {customHeaderRows.map((row, i) => (
+                      <div key={i} className="flex gap-2 items-center">
+                        <Input
+                          placeholder="Header name (e.g. X-API-Key)"
+                          className="font-mono text-xs flex-1 min-w-0"
+                          value={row.key}
+                          onChange={(e) => {
+                            const next = customHeaderRows.map((r, j) =>
+                              j === i ? { ...r, key: e.target.value } : r
+                            );
+                            setCustomHeaderRows(next);
+                            setAuthByAgent((prev) => ({
+                              ...prev,
+                              [selectedAgent.id]: {
+                                ...prev[selectedAgent.id],
+                                type: "custom",
+                                customHeaders: next
+                                  .filter((r) => r.key.trim() !== "")
+                                  .reduce((acc, r) => ({ ...acc, [r.key.trim()]: r.value }), {}),
+                              },
+                            }));
+                          }}
+                        />
+                        <Input
+                          type="password"
+                          autoComplete="off"
+                          data-1p-ignore
+                          placeholder="Value"
+                          className="font-mono text-xs flex-1 min-w-0"
+                          value={row.value}
+                          onChange={(e) => {
+                            const next = customHeaderRows.map((r, j) =>
+                              j === i ? { ...r, value: e.target.value } : r
+                            );
+                            setCustomHeaderRows(next);
+                            setAuthByAgent((prev) => ({
+                              ...prev,
+                              [selectedAgent.id]: {
+                                ...prev[selectedAgent.id],
+                                type: "custom",
+                                customHeaders: next
+                                  .filter((r) => r.key.trim() !== "")
+                                  .reduce((acc, r) => ({ ...acc, [r.key.trim()]: r.value }), {}),
+                              },
+                            }));
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0 h-8 w-8 text-muted-foreground hover:text-destructive"
+                          onClick={() => {
+                            const next = customHeaderRows.filter((_, j) => j !== i);
+                            setCustomHeaderRows(next.length ? next : [{ key: "", value: "" }]);
+                            setAuthByAgent((prev) => ({
+                              ...prev,
+                              [selectedAgent.id]: {
+                                ...prev[selectedAgent.id],
+                                type: "custom",
+                                customHeaders: next
+                                  .filter((r) => r.key.trim() !== "")
+                                  .reduce((acc, r) => ({ ...acc, [r.key.trim()]: r.value }), {}),
+                              },
+                            }));
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setCustomHeaderRows((prev) => [...prev, { key: "", value: "" }])}
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1.5" />
+                    Add header
+                  </Button>
                 </div>
               )}
 

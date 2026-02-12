@@ -6,6 +6,7 @@ import { buildAuthHeaders, getAuthTokenForSdk } from "@/lib/a2a/schema";
 type StreamRequest = {
   cardUrl?: string;
   endpointUrl?: string;
+  method?: string;
   params?: unknown;
   auth?: AgentAuthConfig;
 };
@@ -36,9 +37,7 @@ async function directStreamingCall(
     params,
   };
 
-  const normalizedUrl = targetUrl.replace(/\/+$/, "") || targetUrl;
-
-  const response = await fetch(normalizedUrl, {
+  const response = await fetch(targetUrl.trim(), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -51,7 +50,28 @@ async function directStreamingCall(
   });
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const text = await response.text();
+      if (text) {
+        const parsed = JSON.parse(text) as { error?: { message?: string }; message?: string };
+        const msg = parsed?.error?.message ?? parsed?.message ?? text.slice(0, 200);
+        detail = msg;
+      }
+    } catch {
+      // use default detail
+    }
+    if (response.status === 404) {
+      detail =
+        "Endpoint returned 404 Not Found. Use the full endpoint URL including path (e.g. …/supply-chain-query). Check the agent docs for the exact JSON-RPC URL.";
+    }
+    if (response.status === 401) {
+      detail =
+        "401 Unauthorized. Check that your auth headers are correct and that header names match exactly (e.g. client_id, client_secret). Some agents are case-sensitive.";
+    }
+    const err = new Error(detail) as Error & { status?: number };
+    err.status = response.status;
+    throw err;
   }
 
   return response;
@@ -71,6 +91,7 @@ export async function POST(request: Request) {
 
   const cardUrl = typeof body.cardUrl === "string" ? body.cardUrl : "";
   const endpointUrl = typeof body.endpointUrl === "string" ? body.endpointUrl : "";
+  const method = typeof body.method === "string" && body.method ? body.method : "message/stream";
   const params = body.params as Record<string, unknown> | undefined;
   const auth = body.auth;
 
@@ -78,6 +99,18 @@ export async function POST(request: Request) {
   const authHeaders = buildAuthHeaders(auth);
   // Get bearer token for SDK calls
   const authToken = getAuthTokenForSdk(auth);
+
+  const hasAuth = auth && auth.type !== "none";
+  if (hasAuth && Object.keys(authHeaders).length === 0) {
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error:
+          "Auth is configured but no headers were built. For custom headers, add at least one header with a name and value. For API key, set both header name and value. For bearer, set the token.",
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
 
   if (!cardUrl && !endpointUrl) {
     return new Response(JSON.stringify({ ok: false, error: "Missing cardUrl or endpointUrl." }), {
@@ -94,14 +127,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    // If we have an endpoint URL but no card URL, use direct streaming
-    if (!cardUrl && endpointUrl) {
-      const upstreamResponse = await directStreamingCall(
-        endpointUrl,
-        "message/send",
-        params,
-        authHeaders
-      );
+    // Use direct streaming when we have an endpoint and either no card URL or any auth.
+    // The SDK only reliably supports bearer on card fetch; we control headers on direct calls.
+    const useDirect = (!cardUrl && endpointUrl) || (endpointUrl && hasAuth);
+    if (useDirect) {
+      const upstreamResponse = await directStreamingCall(endpointUrl, method, params, authHeaders);
 
       // Check if the response is actually SSE
       const contentType = upstreamResponse.headers.get("Content-Type") || "";
@@ -116,11 +146,22 @@ export async function POST(request: Request) {
         });
       } else {
         // Not SSE, return the JSON response as a single event
-        const data = await upstreamResponse.json();
+        let data: unknown;
+        try {
+          const text = await upstreamResponse.text();
+          data = text ? JSON.parse(text) : {};
+        } catch (parseErr) {
+          const msg = parseErr instanceof Error ? parseErr.message : "Invalid JSON response";
+          return new Response(JSON.stringify({ ok: false, error: `Upstream response: ${msg}` }), {
+            status: 502,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
         const encoder = new TextEncoder();
+        const dataRecord = data as Record<string, unknown>;
         const stream = new ReadableStream({
           start(controller) {
-            const result = data.result ?? data;
+            const result = dataRecord.result ?? data;
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(result)}\n\n`));
             controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
             controller.close();
@@ -146,12 +187,7 @@ export async function POST(request: Request) {
 
     if (!supportsStreaming && endpointUrl) {
       // Card says no streaming but we have an endpoint: try direct streaming to endpoint
-      const upstreamResponse = await directStreamingCall(
-        endpointUrl,
-        "message/send",
-        params,
-        authHeaders
-      );
+      const upstreamResponse = await directStreamingCall(endpointUrl, method, params, authHeaders);
       const contentType = upstreamResponse.headers.get("Content-Type") || "";
       if (contentType.includes("text/event-stream") && upstreamResponse.body) {
         return new Response(upstreamResponse.body, {
@@ -221,17 +257,10 @@ export async function POST(request: Request) {
     const err = error instanceof Error ? error : new Error(String(error));
 
     const isAgentCard404 =
-      cardUrl &&
-      err.message.includes("Failed to fetch Agent Card") &&
-      err.message.includes("404");
+      cardUrl && err.message.includes("Failed to fetch Agent Card") && err.message.includes("404");
     if (isAgentCard404) {
       try {
-        const upstreamResponse = await directStreamingCall(
-          cardUrl,
-          "message/send",
-          params,
-          authHeaders
-        );
+        const upstreamResponse = await directStreamingCall(cardUrl, method, params, authHeaders);
         const contentType = upstreamResponse.headers.get("Content-Type") || "";
         if (contentType.includes("text/event-stream") && upstreamResponse.body) {
           return new Response(upstreamResponse.body, {
@@ -242,7 +271,19 @@ export async function POST(request: Request) {
             },
           });
         }
-        const data = await upstreamResponse.json();
+        let data: Record<string, unknown>;
+        try {
+          const text = await upstreamResponse.text();
+          data = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+        } catch {
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              error: "Upstream response was not valid JSON.",
+            }),
+            { status: 502, headers: { "Content-Type": "application/json" } }
+          );
+        }
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
           start(controller) {
@@ -260,25 +301,20 @@ export async function POST(request: Request) {
           },
         });
       } catch (fallbackError) {
-        return new Response(
-          JSON.stringify({
-            ok: false,
-            error:
-              fallbackError instanceof Error
-                ? fallbackError.message
-                : "Request failed.",
-          }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
-        );
+        const msg = fallbackError instanceof Error ? fallbackError.message : "Request failed.";
+        return new Response(JSON.stringify({ ok: false, error: msg }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
       }
     }
 
-    return new Response(
-      JSON.stringify({
-        ok: false,
-        error: error instanceof Error ? error.message : "Request failed.",
-      }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    const msg = err.message || "Request failed.";
+    const status = (err as Error & { status?: number }).status;
+    const isUpstream = typeof status === "number" && status >= 400 && status < 600;
+    return new Response(JSON.stringify({ ok: false, error: msg }), {
+      status: isUpstream ? 502 : 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }
