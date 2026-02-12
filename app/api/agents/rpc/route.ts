@@ -39,14 +39,18 @@ async function directJsonRpcCall(
     params,
   };
 
-  const response = await fetch(targetUrl, {
+  const normalizedUrl = targetUrl.replace(/\/+$/, "") || targetUrl;
+
+  const response = await fetch(normalizedUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
+      "User-Agent": "Agenticat/1.0 (A2A JSON-RPC client)",
       ...authHeaders,
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!response.ok) {
@@ -170,6 +174,33 @@ export async function POST(request: Request) {
       });
     }
   } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+
+    const isAgentCard404 =
+      cardUrl &&
+      err.message.includes("Failed to fetch Agent Card") &&
+      err.message.includes("404");
+    if (isAgentCard404) {
+      try {
+        const data = await directJsonRpcCall(cardUrl, method, params, authHeaders);
+        return NextResponse.json({
+          ok: true,
+          status: 200,
+          data,
+          streaming: false,
+        });
+      } catch (fallbackError) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              fallbackError instanceof Error ? fallbackError.message : "Request failed.",
+          },
+          { status: 500 }
+        );
+      }
+    }
+
     return NextResponse.json(
       {
         ok: false,

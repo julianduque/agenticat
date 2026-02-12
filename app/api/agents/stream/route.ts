@@ -36,14 +36,18 @@ async function directStreamingCall(
     params,
   };
 
-  const response = await fetch(targetUrl, {
+  const normalizedUrl = targetUrl.replace(/\/+$/, "") || targetUrl;
+
+  const response = await fetch(normalizedUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
+      "User-Agent": "Agenticat/1.0 (A2A JSON-RPC client)",
       ...authHeaders,
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!response.ok) {
@@ -140,6 +144,43 @@ export async function POST(request: Request) {
     const agentCard = await client.getAgentCard();
     const supportsStreaming = agentCard.capabilities?.streaming ?? false;
 
+    if (!supportsStreaming && endpointUrl) {
+      // Card says no streaming but we have an endpoint: try direct streaming to endpoint
+      const upstreamResponse = await directStreamingCall(
+        endpointUrl,
+        "message/send",
+        params,
+        authHeaders
+      );
+      const contentType = upstreamResponse.headers.get("Content-Type") || "";
+      if (contentType.includes("text/event-stream") && upstreamResponse.body) {
+        return new Response(upstreamResponse.body, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+          },
+        });
+      }
+      const data = await upstreamResponse.json();
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          const result = data.result ?? data;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(result)}\n\n`));
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
+
     if (!supportsStreaming) {
       return new Response(
         JSON.stringify({ ok: false, error: "Agent does not support streaming." }),
@@ -177,6 +218,61 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+
+    const isAgentCard404 =
+      cardUrl &&
+      err.message.includes("Failed to fetch Agent Card") &&
+      err.message.includes("404");
+    if (isAgentCard404) {
+      try {
+        const upstreamResponse = await directStreamingCall(
+          cardUrl,
+          "message/send",
+          params,
+          authHeaders
+        );
+        const contentType = upstreamResponse.headers.get("Content-Type") || "";
+        if (contentType.includes("text/event-stream") && upstreamResponse.body) {
+          return new Response(upstreamResponse.body, {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              Connection: "keep-alive",
+            },
+          });
+        }
+        const data = await upstreamResponse.json();
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            const result = data.result ?? data;
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(result)}\n\n`));
+            controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+          },
+        });
+      } catch (fallbackError) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error:
+              fallbackError instanceof Error
+                ? fallbackError.message
+                : "Request failed.",
+          }),
+          { status: 500, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     return new Response(
       JSON.stringify({
         ok: false,

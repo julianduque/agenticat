@@ -803,7 +803,7 @@ export default function Home() {
           },
           body: JSON.stringify({
             cardUrl: selectedAgent.url || undefined,
-            endpointUrl: selectedAgent.url ? undefined : endpointUrl,
+            endpointUrl: endpointUrl || undefined,
             params: requestParams,
             auth: authByAgent[selectedAgent.id],
           }),
@@ -1056,7 +1056,7 @@ export default function Home() {
           },
           body: JSON.stringify({
             cardUrl: selectedAgent.url || undefined,
-            endpointUrl: selectedAgent.url ? undefined : endpointUrl,
+            endpointUrl: endpointUrl || undefined,
             method,
             params: requestParams,
             auth: authByAgent[selectedAgent.id],
